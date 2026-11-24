@@ -1,0 +1,5 @@
+# No third-party Python packages. ffmpeg and (for harvest) adb are required.
+#
+#   Windows : winget install Gyan.FFmpeg
+#   macOS   : brew install ffmpeg
+#   Linux   : sudo apt install ffmpeg
