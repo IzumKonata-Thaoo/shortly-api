@@ -76,6 +76,17 @@ nonce. `login_token` does accept a `token` body field — it answers "invalid or
 already used", which suggests the value is consumed during registration and a
 second, authenticated call is expected.
 
+### The app does not hold that token in memory
+
+A scan of the running process (Frida, all `rw-` ranges, ~1.5 GB) looking for
+`[0-9a-f]{64}_[0-9a-f]{24}` — as ASCII **and** as UTF-16LE, since Dart strings are
+UTF-16 — found **zero** matches.
+
+So the string `guest-register` returns is probably a registration receipt, not the
+bearer the app actually sends. Whatever the app uses is either much shorter, or it
+is produced per request from the encrypted blob in `FlutterSecureKeyStorage.xml`
+(the AES key there is RSA-wrapped and Keystore-backed).
+
 **Status: open.** The media side does not need it (see [media.md](media.md)), so the
 downloader works regardless.
 
