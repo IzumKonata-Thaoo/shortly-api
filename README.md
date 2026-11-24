@@ -108,6 +108,7 @@ out/
 | Command | What it does |
 |---|---|
 | `python shortly.py harvest` | pull the app DB, extract every manifest it logged |
+| `python shortly.py series` | the series catalogue the app cached (id, title, episode count) |
 | `python shortly.py list` | show what was harvested |
 | `python shortly.py watch` | poll the DB while the app plays, download new episodes as they appear |
 | `python shortly.py get --eps 1-6` | download a range (or `--all`, `--limit N`, `--workers N`) |
