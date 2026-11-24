@@ -91,7 +91,38 @@ def harvest(db: Path | None = None):
         })
     out.sort(key=lambda r: (r["show"], r["season"], r["episode"]))
     CACHE.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    save_series(con)
     return out
+
+
+def save_series(con):
+    """The app caches the whole `/v2/page/series` payload — keep the series list."""
+    try:
+        payload = con.execute("select payload from home_snapshot limit 1").fetchone()
+    except Exception:
+        return
+    if not payload:
+        return
+    try:
+        doc = json.loads(payload[0])
+    except Exception:
+        return
+    seen, series = set(), []
+    for cat in doc.get("categories") or []:
+        for s in cat.get("series") or []:
+            if not s.get("id") or s["id"] in seen:
+                continue
+            seen.add(s["id"])
+            series.append({
+                "id": s.get("id"),
+                "title": s.get("title"),
+                "tech_title": s.get("tech_title"),
+                "episodes": s.get("episodes_count"),
+                "category": cat.get("title"),
+                "is_finished": s.get("is_finished"),
+                "tags": s.get("tags"),
+            })
+    (ROOT / "series.json").write_text(json.dumps(series, indent=1), encoding="utf-8")
 
 
 def load():
@@ -260,6 +291,18 @@ def cmd_watch(args):
     print("collected %d new episode(s); %d known total" % (got, len(known)))
 
 
+def cmd_series(args):
+    path = ROOT / "series.json"
+    if not path.exists():
+        raise SystemExit("no series.json — run: python shortly.py harvest")
+    rows = json.loads(path.read_text(encoding="utf-8"))
+    print("%d series" % len(rows))
+    for r in rows:
+        print("  %-5s %-44s %3s eps  %s" %
+              (r["id"], (r["title"] or "")[:44], r["episodes"],
+               r.get("category") or ""))
+
+
 def cmd_status(args):
     files = list(OUT.rglob("*.mp4"))
     total = sum(f.stat().st_size for f in files)
@@ -281,6 +324,7 @@ def main():
     h.set_defaults(fn=cmd_harvest)
 
     sub.add_parser("list").set_defaults(fn=cmd_list)
+    sub.add_parser("series", help="series list cached by the app").set_defaults(fn=cmd_series)
 
     g = sub.add_parser("get", help="download harvested episodes")
     g.add_argument("--eps", help="1-6 or 1,3,7")
