@@ -189,6 +189,77 @@ def cmd_url(args):
     sys.exit(0 if ok else 1)
 
 
+def cmd_watch(args):
+    """Poll the app DB while it plays, downloading every new manifest it logs.
+
+    This is how a whole series is collected without the API: the app autoplays and
+    prefetches, so each poll yields the next episode's manifest URL.
+    """
+    print("watching the app log — let the app play; Ctrl+C to stop")
+    known = {r["url"] for r in (load() if CACHE.exists() else [])}
+    deadline = time.time() + args.minutes * 60 if args.minutes else None
+    idle = 0
+    got = 0
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=args.workers)
+    pending = []
+
+    def finish():
+        nonlocal got
+        for fut in list(pending):
+            if not fut.done():
+                continue
+            pending.remove(fut)
+            try:
+                ok, info = fut.result()
+            except Exception as e:  # noqa: BLE001
+                ok, info = False, str(e)[:120]
+            if ok:
+                got += 1
+                print("  saved %s" % info, flush=True)
+
+    try:
+        while True:
+            if deadline and time.time() > deadline:
+                break
+            try:
+                db = pull_db()
+                rows = harvest(db)
+            except SystemExit:
+                print("  ! cannot read the app DB (root / adb?)")
+                break
+            new = []
+            for r in rows:
+                if r["url"] in known:
+                    continue
+                dest = dest_for(r)
+                if dest.exists() and dest.stat().st_size > 200_000:
+                    known.add(r["url"])
+                    continue
+                known.add(r["url"])
+                new.append(r)
+                pending.append(pool.submit(download, r["url"], dest))
+                print("  + S%02dE%02d %-9s queued" %
+                      (r["season"], r["episode"], r["episode_id"]), flush=True)
+            finish()
+            idle = 0 if new else idle + 1
+            if args.stop_when_idle and idle >= args.stop_when_idle:
+                print("  no new episodes for %d polls, stopping" % idle)
+                break
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print("\nstopped")
+    finally:
+        for fut in pending:
+            try:
+                ok, info = fut.result()
+                if ok:
+                    got += 1
+            except Exception:  # noqa: BLE001
+                pass
+        pool.shutdown(wait=True)
+    print("collected %d new episode(s); %d known total" % (got, len(known)))
+
+
 def cmd_status(args):
     files = list(OUT.rglob("*.mp4"))
     total = sum(f.stat().st_size for f in files)
@@ -221,6 +292,14 @@ def main():
     u = sub.add_parser("url", help="download one manifest URL")
     u.add_argument("url")
     u.set_defaults(fn=cmd_url)
+
+    w = sub.add_parser("watch", help="poll the app while it plays, download new episodes")
+    w.add_argument("--interval", type=int, default=10, help="seconds between polls")
+    w.add_argument("--workers", type=int, default=2)
+    w.add_argument("--minutes", type=int, help="stop after N minutes")
+    w.add_argument("--stop-when-idle", type=int, default=0,
+                   help="stop after N polls with no new episode (0 = never)")
+    w.set_defaults(fn=cmd_watch)
 
     sub.add_parser("status").set_defaults(fn=cmd_status)
 
